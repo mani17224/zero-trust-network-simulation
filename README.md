@@ -201,3 +201,309 @@ All requests require a valid client CN in `X-Client-Cert-CN` header (set by mTLS
 | 8 | `WireGuard handshake fails` | Verify UDP 51820 is open in cloud firewall and endpoint IPs are correct |
 | 9 | `Grafana shows no metrics` | Wait 30s for Prometheus to scrape; verify targets at localhost:9090/targets |
 | 10 | `pytest ImportError` | Set `PYTHONPATH=gateway:services/service-a:services/service-b:services/service-c` |
+
+
+
+
+# Zero Trust Network Simulation — Complete Setup Guide
+
+## Requirements
+
+Install these before running:
+
+### 1. Git
+
+Check:
+
+```bash
+git --version
+```
+
+### 2. Python 3.11+
+
+Check:
+
+```bash
+python --version
+```
+
+### 3. Node.js (18+)
+
+Check:
+
+```bash
+node -v
+npm -v
+```
+
+### 4. Docker Desktop (Optional for container deployment)
+
+Check:
+
+```bash
+docker --version
+docker compose version
+```
+
+### 5. Open Policy Agent (OPA)
+
+Download and place:
+
+```text
+opa.exe
+```
+
+Check:
+
+```bash
+opa version
+```
+
+---
+
+# Clone Project
+
+```bash
+git clone https://github.com/mani17224/zero-trust-network-simulation.git
+
+cd zero-trust-network-simulation
+```
+
+---
+
+# Project Structure
+
+```text
+frontend/
+gateway/
+services/
+ ├── service-a/
+ ├── service-b/
+ └── service-c/
+policies/
+monitoring/
+tests/
+wireguard/
+```
+
+---
+
+# Step 1 — Start OPA
+
+Move to project root:
+
+```bash
+cd zero-trust-network-simulation
+```
+
+Run:
+
+```bash
+opa.exe run --server --addr :8181 policies
+```
+
+Verify:
+
+```bash
+curl http://localhost:8181/v1/data
+```
+
+Expected:
+
+```text
+JSON response
+```
+
+---
+
+# Step 2 — Start Gateway
+
+Create environment:
+
+```bash
+set OPA_URL=http://localhost:8181
+set SERVICE_A_URL=http://localhost:8001
+set SERVICE_B_URL=http://localhost:8002
+set SERVICE_C_URL=http://localhost:8003
+```
+
+Install:
+
+```bash
+cd gateway
+
+python -m venv venv
+venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+Run:
+
+```bash
+cd ..
+
+python -m uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Verify:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected:
+
+```json
+{
+"status":"healthy"
+}
+```
+
+---
+
+# Step 3 — Start Service A
+
+```bash
+cd services/service-a
+
+python -m venv venv
+venv\Scripts\activate
+
+pip install -r requirements.txt
+
+set JWT_SECRET=local-dev-secret
+
+python -m uvicorn main:app --port 8001 --reload
+```
+
+---
+
+# Step 4 — Start Service B
+
+```bash
+cd services/service-b
+
+python -m venv venv
+venv\Scripts\activate
+
+pip install -r requirements.txt
+
+python -m uvicorn main:app --port 8002 --reload
+```
+
+Verify:
+
+```bash
+curl http://localhost:8002/health
+```
+
+---
+
+# Step 5 — Start Service C
+
+```bash
+cd services/service-c
+
+python -m venv venv
+venv\Scripts\activate
+
+pip install -r requirements.txt
+
+python -m uvicorn main:app --port 8003 --reload
+```
+
+---
+
+# Step 6 — Start Frontend
+
+```bash
+cd frontend
+
+npm install
+```
+
+Create:
+
+```text
+.env
+```
+
+Add:
+
+```env
+VITE_GATEWAY_URL=http://localhost:8000
+VITE_OPA_URL=http://localhost:8181
+```
+
+Run:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+---
+
+# Verify System
+
+Gateway:
+
+```bash
+curl http://localhost:8000/health
+```
+
+OPA:
+
+```bash
+curl http://localhost:8181/v1/data
+```
+
+Authorized:
+
+```bash
+curl -H "X-Client-Cert-CN: gateway.zerotrust.local" http://localhost:8000/records
+```
+
+Denied:
+
+```bash
+curl http://localhost:8000/records
+```
+
+Policy Test:
+
+```bash
+curl -X POST http://localhost:8181/v1/data/zerotrust/authz ^
+-H "Content-Type: application/json" ^
+-d "{\"input\":{\"subject\":\"gateway\",\"service\":\"service-b\",\"resource\":\"/records\",\"method\":\"GET\"}}"
+```
+
+Expected:
+
+```json
+{
+"allow": true
+}
+```
+
+---
+
+# Features
+
+* Zero Trust Architecture
+* OPA Authorization
+* RBAC
+* mTLS Simulation
+* API Gateway
+* Certificate Management
+* Monitoring Dashboard
+* Audit Logging
+* WireGuard Simulation
+* Frontend Policy Tester
+
