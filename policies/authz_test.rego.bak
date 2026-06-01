@@ -1,0 +1,386 @@
+# authz_test.rego — Unit tests for Zero Trust authorization policy
+# Run with: opa test policies/ -v
+package zerotrust.authz_test
+
+import data.zerotrust.authz
+
+# ════════════════════════════════════════════════════════
+# PUBLIC ENDPOINT TESTS
+# ════════════════════════════════════════════════════════
+
+test_health_endpoint_open_to_all if {
+    authz.allow with input as {
+        "subject": "gateway",
+        "service": "gateway",
+        "resource": "/health",
+        "method": "GET"
+    }
+}
+
+test_health_endpoint_open_to_unknown_subject if {
+    authz.allow with input as {
+        "subject": "unknown-service",
+        "service": "gateway",
+        "resource": "/health",
+        "method": "GET"
+    }
+}
+
+test_health_endpoint_open_to_unauthenticated if {
+    authz.allow with input as {
+        "subject": "",
+        "service": "gateway",
+        "resource": "/health",
+        "method": "GET"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# METRICS ENDPOINT TESTS
+# ════════════════════════════════════════════════════════
+
+test_metrics_allowed_for_monitoring_agent if {
+    authz.allow with input as {
+        "subject": "monitoring-agent",
+        "service": "gateway",
+        "resource": "/metrics",
+        "method": "GET"
+    }
+}
+
+test_metrics_denied_for_gateway if {
+    not authz.allow with input as {
+        "subject": "gateway",
+        "service": "gateway",
+        "resource": "/metrics",
+        "method": "GET"
+    }
+}
+
+test_metrics_denied_for_service_a if {
+    not authz.allow with input as {
+        "subject": "service-a",
+        "service": "gateway",
+        "resource": "/metrics",
+        "method": "GET"
+    }
+}
+
+test_metrics_denied_for_unknown_subject if {
+    not authz.allow with input as {
+        "subject": "attacker",
+        "service": "gateway",
+        "resource": "/metrics",
+        "method": "GET"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-A: /verify TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_a_verify_allowed_for_gateway if {
+    authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-a",
+        "resource": "/verify",
+        "method": "GET"
+    }
+}
+
+test_service_a_verify_allowed_for_service_b if {
+    authz.allow with input as {
+        "subject": "service-b",
+        "service": "service-a",
+        "resource": "/verify",
+        "method": "GET"
+    }
+}
+
+test_service_a_verify_allowed_for_monitoring_agent if {
+    authz.allow with input as {
+        "subject": "monitoring-agent",
+        "service": "service-a",
+        "resource": "/verify",
+        "method": "GET"
+    }
+}
+
+test_service_a_verify_denied_for_unknown if {
+    not authz.allow with input as {
+        "subject": "unknown-attacker",
+        "service": "service-a",
+        "resource": "/verify",
+        "method": "GET"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-A: /login TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_a_login_allowed_for_gateway if {
+    authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-a",
+        "resource": "/login",
+        "method": "POST"
+    }
+}
+
+test_service_a_login_denied_for_service_b if {
+    not authz.allow with input as {
+        "subject": "service-b",
+        "service": "service-a",
+        "resource": "/login",
+        "method": "POST"
+    }
+}
+
+test_service_a_login_denied_for_admin_service if {
+    not authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-a",
+        "resource": "/login",
+        "method": "POST"
+    }
+}
+
+test_service_a_login_denied_for_monitoring if {
+    not authz.allow with input as {
+        "subject": "monitoring-agent",
+        "service": "service-a",
+        "resource": "/login",
+        "method": "POST"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-B: READER ROLE TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_b_get_allowed_for_reader_service_a if {
+    authz.allow with input as {
+        "subject": "service-a",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "GET"
+    }
+}
+
+test_service_b_get_allowed_for_gateway_reader if {
+    authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "GET"
+    }
+}
+
+test_service_b_post_denied_for_reader_only if {
+    # service-a has only reader role — cannot POST
+    not authz.allow with input as {
+        "subject": "service-a",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "POST"
+    }
+}
+
+test_service_b_delete_denied_for_reader if {
+    not authz.allow with input as {
+        "subject": "service-a",
+        "service": "service-b",
+        "resource": "/records/123",
+        "method": "DELETE"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-B: WRITER ROLE TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_b_post_allowed_for_writer_gateway if {
+    authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "POST"
+    }
+}
+
+test_service_b_post_allowed_for_writer_service_b if {
+    # service-b has reader+writer — can POST to itself (internal)
+    authz.allow with input as {
+        "subject": "service-b",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "POST"
+    }
+}
+
+test_service_b_delete_denied_for_writer_only if {
+    # gateway has writer+reader but not admin — cannot DELETE
+    not authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-b",
+        "resource": "/records/456",
+        "method": "DELETE"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-B: ADMIN ROLE TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_b_delete_allowed_for_admin if {
+    authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-b",
+        "resource": "/records/789",
+        "method": "DELETE"
+    }
+}
+
+test_service_b_all_methods_allowed_for_admin if {
+    authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "GET"
+    }
+    authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "POST"
+    }
+    authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-b",
+        "resource": "/records/1",
+        "method": "DELETE"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# SERVICE-C: ADMIN ONLY TESTS
+# ════════════════════════════════════════════════════════
+
+test_service_c_allowed_for_admin_service if {
+    authz.allow with input as {
+        "subject": "admin-service",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "GET"
+    }
+}
+
+test_service_c_denied_for_gateway if {
+    not authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "GET"
+    }
+}
+
+test_service_c_denied_for_service_a if {
+    not authz.allow with input as {
+        "subject": "service-a",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "POST"
+    }
+}
+
+test_service_c_denied_for_service_b if {
+    not authz.allow with input as {
+        "subject": "service-b",
+        "service": "service-c",
+        "resource": "/audit-logs",
+        "method": "GET"
+    }
+}
+
+test_service_c_denied_for_monitoring if {
+    not authz.allow with input as {
+        "subject": "monitoring-agent",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "GET"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# DENY REASON TESTS
+# ════════════════════════════════════════════════════════
+
+test_reason_for_health_endpoint if {
+    authz.reason == "public endpoint: /health" with input as {
+        "subject": "anyone",
+        "service": "gateway",
+        "resource": "/health",
+        "method": "GET"
+    }
+}
+
+test_reason_for_denied_service_c if {
+    authz.reason == "access denied: service-c requires admin role" with input as {
+        "subject": "gateway",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "GET"
+    }
+}
+
+test_reason_for_denied_login if {
+    authz.reason == "access denied: POST /login restricted to gateway service" with input as {
+        "subject": "service-b",
+        "service": "service-a",
+        "resource": "/login",
+        "method": "POST"
+    }
+}
+
+test_reason_for_unknown_subject if {
+    authz.reason == "access denied: unknown subject not in service registry" with input as {
+        "subject": "evil-service",
+        "service": "service-a",
+        "resource": "/verify",
+        "method": "GET"
+    }
+}
+
+# ════════════════════════════════════════════════════════
+# PRIVILEGE ESCALATION TESTS
+# ════════════════════════════════════════════════════════
+
+test_no_privilege_escalation_reader_to_writer if {
+    # service-a (reader only) cannot escalate to writer permissions
+    not authz.allow with input as {
+        "subject": "service-a",
+        "service": "service-b",
+        "resource": "/records",
+        "method": "POST"
+    }
+}
+
+test_no_privilege_escalation_writer_to_admin if {
+    # gateway (writer+reader) cannot access service-c (admin only)
+    not authz.allow with input as {
+        "subject": "gateway",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "GET"
+    }
+}
+
+test_no_privilege_escalation_via_unknown_subject if {
+    not authz.allow with input as {
+        "subject": "admin",
+        "service": "service-c",
+        "resource": "/users",
+        "method": "DELETE"
+    }
+}

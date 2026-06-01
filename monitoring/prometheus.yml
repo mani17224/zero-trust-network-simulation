@@ -1,0 +1,35 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'zero-trust-simulation'
+
+scrape_configs:
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8000']
+    metrics_path: /metrics
+
+  - job_name: 'service-a'
+    static_configs:
+      - targets: ['service-a:8001']
+    metrics_path: /metrics
+
+  - job_name: 'service-b'
+    static_configs:
+      - targets: ['service-b:8002']
+    metrics_path: /metrics
+
+  - job_name: 'service-c'
+    static_configs:
+      - targets: ['service-c:8003']
+    metrics_path: /metrics
+
+  - job_name: 'opa'
+    static_configs:
+      - targets: ['opa:8181']
+    metrics_path: /metrics
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

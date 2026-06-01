@@ -1,0 +1,48 @@
+{
+  "roles": {
+    "gateway":          ["writer", "reader"],
+    "service-a":        ["reader"],
+    "service-b":        ["reader", "writer"],
+    "monitoring-agent": ["monitoring"],
+    "monitoring":       ["monitoring"],
+    "admin-service":    ["admin", "reader", "writer"]
+  },
+
+  "service_registry": [
+    "gateway",
+    "service-a",
+    "service-b",
+    "service-c",
+    "monitoring-agent",
+    "monitoring",
+    "admin-service"
+  ],
+
+  "service_endpoints": {
+    "gateway":          "http://gateway:8000",
+    "service-a":        "http://service-a:8001",
+    "service-b":        "http://service-b:8002",
+    "service-c":        "http://service-c:8003",
+    "monitoring-agent": "http://prometheus:9090"
+  },
+
+  "role_permissions": {
+    "reader": {
+      "methods": ["GET", "HEAD", "OPTIONS"],
+      "description": "Read-only access to data endpoints"
+    },
+    "writer": {
+      "methods": ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH"],
+      "description": "Read and write access, no delete"
+    },
+    "admin": {
+      "methods": ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"],
+      "description": "Full access including delete and admin endpoints"
+    },
+    "monitoring": {
+      "methods": ["GET"],
+      "resources": ["/metrics", "/health"],
+      "description": "Read-only access to observability endpoints"
+    }
+  }
+}

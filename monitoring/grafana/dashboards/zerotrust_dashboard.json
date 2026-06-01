@@ -1,0 +1,62 @@
+{
+  "title": "Zero Trust Network Simulation",
+  "uid": "zerotrust-main",
+  "version": 1,
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total Requests",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(gateway_requests_total)", "legendFormat": "Total" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Allowed Requests",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(gateway_requests_allowed_total)", "legendFormat": "Allowed" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Denied Requests",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(gateway_requests_denied_total)", "legendFormat": "Denied" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red", "value": null }] } } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "OPA P95 Latency",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "histogram_quantile(0.95, rate(gateway_opa_query_duration_seconds_bucket[5m])) * 1000", "legendFormat": "P95 ms" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 100 }] } } }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Request Rate (allow vs deny)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(gateway_requests_allowed_total[1m])", "legendFormat": "Allowed/s" },
+        { "expr": "rate(gateway_requests_denied_total[1m])",  "legendFormat": "Denied/s" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "OPA Query Latency Percentiles",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(gateway_opa_query_duration_seconds_bucket[5m])) * 1000", "legendFormat": "P50" },
+        { "expr": "histogram_quantile(0.95, rate(gateway_opa_query_duration_seconds_bucket[5m])) * 1000", "legendFormat": "P95" },
+        { "expr": "histogram_quantile(0.99, rate(gateway_opa_query_duration_seconds_bucket[5m])) * 1000", "legendFormat": "P99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "mTLS Auth Failures",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "targets": [{ "expr": "rate(gateway_mtls_auth_failures_total[5m])", "legendFormat": "{{failure_reason}}" }]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Active Connections",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+      "targets": [{ "expr": "gateway_active_connections", "legendFormat": "Active" }]
+    }
+  ]
+}

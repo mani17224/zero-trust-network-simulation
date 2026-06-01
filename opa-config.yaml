@@ -1,0 +1,10 @@
+server: {
+  port: 3000,
+  proxy: {
+    "/opa": {
+      target: "http://localhost:8181",
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/opa/, "")
+    }
+  }
+}

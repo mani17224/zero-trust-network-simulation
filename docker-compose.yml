@@ -1,0 +1,273 @@
+name: zero-trust-simulation
+
+networks:
+  zerotrust-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  vault-data:
+  grafana-data:
+  prometheus-data:
+
+services:
+
+  # ── HashiCorp Vault ──────────────────────────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: vault
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.5
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_TOKEN:-root-token-dev}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/data
+    command: vault server -dev
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_ADDR=http://127.0.0.1:8200 vault status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Open Policy Agent ────────────────────────────────────────────────────────
+  opa:
+    image: openpolicyagent/opa:0.65.0
+    container_name: opa
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.6
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policies:/policies:ro
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-level=info
+      - --log-format=json
+      # Allow browser (frontend) to call OPA directly for Policy Tester
+      - --cors-allowed-origins=*
+      - /policies
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: gateway
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: "Zero Trust Gateway"
+      APP_VERSION: "1.0.0"
+      HOST: 0.0.0.0
+      PORT: 8000
+      # Set DEBUG=true to enable DEV_CLIENT_CN fallback (no real certs needed)
+      DEBUG: ${DEBUG:-false}
+      # DEV_CLIENT_CN: gateway.zerotrust.local   # uncomment for dev without certs
+      DEV_CLIENT_CN: ${DEV_CLIENT_CN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPA_URL: http://opa:8181
+      OPA_POLICY_PATH: /v1/data/zerotrust/authz
+      OPA_TIMEOUT_SECONDS: 5.0
+      OPA_CACHE_TTL_SECONDS: 10
+      # HTTP (not HTTPS) for internal Docker services — no certs needed in dev
+      SERVICE_A_URL: http://service-a:8001
+      SERVICE_B_URL: http://service-b:8002
+      SERVICE_C_URL: http://service-c:8003
+      JWT_SECRET: ${JWT_SECRET:-CHANGE-ME-generate-with-openssl-rand-hex-32}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 60
+      ALLOWED_CLIENT_CNS: "gateway.zerotrust.local,service-a.zerotrust.local,service-b.zerotrust.local,service-c.zerotrust.local,monitoring.zerotrust.local,admin-service.zerotrust.local"
+      CORS_ORIGINS: "*"
+      RATE_LIMIT_DEFAULT: "200/minute"
+      RATE_LIMIT_LOGIN: "10/minute"
+    depends_on:
+      opa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Auth Service (Service A) ─────────────────────────────────────────────────
+  service-a:
+    build:
+      context: ./services/service-a
+      dockerfile: Dockerfile
+    container_name: service-a
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.11
+    ports:
+      - "8001:8001"
+    environment:
+      APP_VERSION: "1.0.0"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE-ME-generate-with-openssl-rand-hex-32}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 60
+      # Accept calls from gateway (both short + full CN forms)
+      ALLOWED_CLIENT_CNS: "gateway,gateway.zerotrust.local,service-b.zerotrust.local,monitoring.zerotrust.local,admin-service.zerotrust.local"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Data Service (Service B) ─────────────────────────────────────────────────
+  service-b:
+    build:
+      context: ./services/service-b
+      dockerfile: Dockerfile
+    container_name: service-b
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.12
+    ports:
+      - "8002:8002"
+    environment:
+      APP_VERSION: "1.0.0"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_CLIENT_CNS: "gateway,gateway.zerotrust.local,service-a.zerotrust.local,service-c.zerotrust.local,monitoring.zerotrust.local,admin-service.zerotrust.local"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Admin Service (Service C) ────────────────────────────────────────────────
+  service-c:
+    build:
+      context: ./services/service-c
+      dockerfile: Dockerfile
+    container_name: service-c
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.13
+    ports:
+      - "8003:8003"
+    environment:
+      APP_VERSION: "1.0.0"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_CLIENT_CNS: "admin-service,admin-service.zerotrust.local,gateway,gateway.zerotrust.local,monitoring.zerotrust.local"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.20
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.21
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-zerotrust}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Gateway URL as seen by the BROWSER (localhost, not container name)
+        VITE_GATEWAY_URL: http://localhost:8000
+        # OPA URL as seen by the BROWSER (for Policy Tester)
+        VITE_OPA_URL: http://localhost:8181
+    container_name: frontend
+    restart: unless-stopped
+    networks:
+      zerotrust-net:
+        ipv4_address: 172.20.0.30
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

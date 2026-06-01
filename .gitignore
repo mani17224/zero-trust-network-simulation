@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Secrets & keys
+certs/*/
+wireguard/keys/
+.env
+vault_root_token
+vault_unseal_keys
+
+# Test reports
+test-reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
